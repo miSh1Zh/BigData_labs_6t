@@ -1,4 +1,3 @@
-
 INSERT INTO customers (first_name, last_name, age, email, country, postal_code)
 SELECT DISTINCT 
     customer_first_name,
@@ -9,19 +8,12 @@ SELECT DISTINCT
     customer_postal_code
 FROM pet_store_data;
 
-
-INSERT INTO pets (customer_id, pet_type, pet_name, pet_breed)
+INSERT INTO pets (pet_type, pet_name, pet_breed)
 SELECT DISTINCT 
-    c.customer_id,
-    t.customer_pet_type,
-    t.customer_pet_name,
-    t.customer_pet_breed
-FROM pet_store_data t
-JOIN customers c ON 
-    c.first_name = t.customer_first_name AND
-    c.last_name = t.customer_last_name AND
-    c.email = t.customer_email;
-
+    customer_pet_type,
+    customer_pet_name,
+    customer_pet_breed
+FROM pet_store_data;
 
 INSERT INTO sellers (first_name, last_name, email, country, postal_code)
 SELECT DISTINCT 
@@ -31,7 +23,6 @@ SELECT DISTINCT
     seller_country,
     seller_postal_code
 FROM pet_store_data;
-
 
 INSERT INTO stores (name, location, city, state, country, phone, email)
 SELECT DISTINCT 
@@ -100,8 +91,8 @@ JOIN customers c ON
     c.last_name = t.customer_last_name AND
     c.email = t.customer_email
 JOIN pets p ON 
-    p.customer_id = c.customer_id AND
-    p.pet_name = t.customer_pet_name
+    p.pet_name = t.customer_pet_name AND
+    p.pet_type = t.customer_pet_type
 JOIN sellers s ON 
     s.first_name = t.seller_first_name AND
     s.last_name = t.seller_last_name AND

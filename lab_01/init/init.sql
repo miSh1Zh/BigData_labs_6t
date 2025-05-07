@@ -1,6 +1,3 @@
-\i /docker-entrypoint-initdb.d/DDL.sql
-\i /docker-entrypoint-initdb.d/DML.sql
-
 CREATE TABLE IF NOT EXISTS pet_store_data (
     customer_first_name TEXT,
     customer_last_name TEXT,

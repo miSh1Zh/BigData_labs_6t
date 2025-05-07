@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS customers (
 
 CREATE TABLE IF NOT EXISTS pets (
     pet_id SERIAL PRIMARY KEY,
-    customer_id INTEGER REFERENCES customers(customer_id),
     pet_type TEXT,
     pet_name TEXT,
     pet_breed TEXT
