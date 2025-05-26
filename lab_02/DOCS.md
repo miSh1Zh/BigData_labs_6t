@@ -31,15 +31,16 @@ CH_PASSWORD=
 ```
 
 3. Start the services using Docker Compose:
+
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-4. Wait for all services to start up (this may take a few minutes).
+1. Wait for all services to start up (this may take a few minutes).
 
 ## Running the ETL Pipeline
 
-To run the ETL pipeline, execute the following command:
+To run the ETL pipeline for **PostgreSQL** and **ClickHouse**, execute the following command:
 
 ```bash
 docker exec -it lab_02-spark-1 spark-submit /opt/bitnami/spark/scripts/etl_pipeline.py

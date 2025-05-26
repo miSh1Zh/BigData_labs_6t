@@ -185,9 +185,31 @@ def create_product_quality_report():
     # Write to ClickHouse
     write_to_clickhouse(quality_metrics, "product_quality_report")
 
+def execute_etl_sql():
+    """Execute ETL SQL queries from etl.sql file"""
+    # Read SQL file
+    with open('/opt/bitnami/spark/scripts/etl.sql', 'r') as file:
+        sql_queries = file.read().split(';')
+    
+    # Execute each query
+    for query in sql_queries:
+        if query:
+            print(f"Executing query: {query.strip()}")
+            # Execute INSERT query directly through JDBC
+            spark._jvm.java.sql.DriverManager.getConnection(
+                f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
+                PG_USER,
+                PG_PASSWORD
+            ).createStatement().execute(query.strip())
+            print("Query executed successfully!")
+
 def main():
     """Main ETL pipeline"""
     print("Starting ETL pipeline...")
+    
+    # Execute ETL SQL queries
+    print("Executing ETL SQL queries...")
+    execute_etl_sql()
     
     # Create all reports
     print("Creating reports...")
