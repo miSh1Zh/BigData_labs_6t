@@ -14,165 +14,173 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 # Database connection parameters
-PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_HOST = os.getenv("PG_HOST", "postgres")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_DATABASE = os.getenv("PG_DATABASE", "pet_store")
 PG_USER = os.getenv("PG_USER", "postgres")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "postgres")
 
-CH_HOST = os.getenv("CH_HOST", "localhost")
+CH_HOST = os.getenv("CH_HOST", "clickhouse")
 CH_PORT = os.getenv("CH_PORT", "8123")
 CH_DATABASE = os.getenv("CH_DATABASE", "pet_store")
 CH_USER = os.getenv("CH_USER", "default")
 CH_PASSWORD = os.getenv("CH_PASSWORD", "")
 
+try:
+    # Explicitly register PostgreSQL JDBC driver
+    spark._jvm.java.lang.Class.forName("org.postgresql.Driver")
+except Exception as e:
+    print(f"Error registering PostgreSQL driver: {e}")
+
 def read_from_postgres(table_name):
     """Read data from PostgreSQL table"""
     return spark.read \
         .format("jdbc") \
+        .option("driver", "org.postgresql.Driver") \
         .option("url", f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DATABASE}") \
         .option("dbtable", table_name) \
         .option("user", PG_USER) \
         .option("password", PG_PASSWORD) \
+        .option("fetchsize", "10000") \
         .load()
 
 def write_to_clickhouse(df, table_name):
     """Write data to ClickHouse table"""
     df.write \
         .format("jdbc") \
+        .option("driver", "com.clickhouse.jdbc.ClickHouseDriver") \
         .option("url", f"jdbc:clickhouse://{CH_HOST}:{CH_PORT}/{CH_DATABASE}") \
         .option("dbtable", table_name) \
         .option("user", CH_USER) \
         .option("password", CH_PASSWORD) \
-        .mode("overwrite") \
+        .mode("append") \
         .save()
 
 def create_product_sales_report():
     """Create product sales report"""
-    sales_df = read_from_postgres("sales")
-    products_df = read_from_postgres("products")
-    
-    # Join sales with products
-    product_sales = sales_df.join(products_df, "product_id")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Calculate metrics
-    product_metrics = product_sales.groupBy("product_id", "name", "category") \
+    product_metrics = raw_data.groupBy("sale_product_id") \
         .agg(
-            sum("total_price").alias("total_revenue"),
-            sum("quantity").alias("total_quantity"),
-            avg("rating").alias("avg_rating"),
-            sum("reviews").alias("total_reviews")
-        )
-    
-    # Get top 10 products by sales
-    top_products = product_metrics.orderBy(desc("total_quantity")).limit(10)
+            first("sale_product_id").cast(IntegerType()).alias("product_id"),
+            first("product_name").alias("name"),
+            first("product_category").alias("category"),
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("total_revenue"),
+            sum("sale_quantity").cast(IntegerType()).alias("total_quantity"),
+            avg("product_rating").cast(DecimalType(3, 2)).alias("avg_rating"),
+            sum("product_reviews").cast(IntegerType()).alias("total_reviews")
+        ) \
+        .select("product_id", "name", "category", "total_revenue", "total_quantity", "avg_rating", "total_reviews")
     
     # Write to ClickHouse
     write_to_clickhouse(product_metrics, "product_sales_report")
 
 def create_customer_sales_report():
     """Create customer sales report"""
-    sales_df = read_from_postgres("sales")
-    customers_df = read_from_postgres("customers")
-    
-    # Join sales with customers
-    customer_sales = sales_df.join(customers_df, "customer_id")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Calculate metrics
-    customer_metrics = customer_sales.groupBy("customer_id", "first_name", "last_name", "country") \
+    customer_metrics = raw_data.groupBy("sale_customer_id") \
         .agg(
-            sum("total_price").alias("total_spent"),
-            avg("total_price").alias("avg_order_value"),
-            count("*").alias("total_orders")
-        )
-    
-    # Get top 10 customers
-    top_customers = customer_metrics.orderBy(desc("total_spent")).limit(10)
+            first("sale_customer_id").cast(IntegerType()).alias("customer_id"),
+            first("customer_first_name").alias("first_name"),
+            first("customer_last_name").alias("last_name"),
+            first("customer_country").alias("country"),
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("total_spent"),
+            avg("sale_total_price").cast(DecimalType(10, 2)).alias("avg_order_value"),
+            count("*").cast(IntegerType()).alias("total_orders")
+        ) \
+        .select("customer_id", "first_name", "last_name", "country", "total_spent", "avg_order_value", "total_orders")
     
     # Write to ClickHouse
     write_to_clickhouse(customer_metrics, "customer_sales_report")
 
 def create_time_sales_report():
     """Create time-based sales report"""
-    sales_df = read_from_postgres("sales")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Add time-based columns
-    time_sales = sales_df.withColumn("year", year("sale_date")) \
-        .withColumn("month", month("sale_date"))
+    time_sales = raw_data.withColumn("year", year("sale_date").cast(ShortType())) \
+        .withColumn("month", month("sale_date").cast(ByteType()))
     
     # Calculate metrics
     time_metrics = time_sales.groupBy("year", "month") \
         .agg(
-            sum("total_price").alias("monthly_revenue"),
-            avg("total_price").alias("avg_order_value"),
-            count("*").alias("total_orders")
-        )
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("monthly_revenue"),
+            avg("sale_total_price").cast(DecimalType(10, 2)).alias("avg_order_value"),
+            count("*").cast(IntegerType()).alias("total_orders")
+        ) \
+        .select("year", "month", "monthly_revenue", "avg_order_value", "total_orders")
     
     # Write to ClickHouse
     write_to_clickhouse(time_metrics, "time_sales_report")
 
 def create_store_sales_report():
     """Create store sales report"""
-    sales_df = read_from_postgres("sales")
-    stores_df = read_from_postgres("stores")
-    
-    # Join sales with stores
-    store_sales = sales_df.join(stores_df, "store_id")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Calculate metrics
-    store_metrics = store_sales.groupBy("store_id", "name", "city", "country") \
+    store_metrics = raw_data.groupBy("store_name", "store_city", "store_country") \
         .agg(
-            sum("total_price").alias("total_revenue"),
-            avg("total_price").alias("avg_order_value"),
-            count("*").alias("total_orders")
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("total_revenue"),
+            avg("sale_total_price").cast(DecimalType(10, 2)).alias("avg_order_value"),
+            count("*").cast(IntegerType()).alias("total_orders")
+        ) \
+        .withColumn("store_id", monotonically_increasing_id().cast(IntegerType())) \
+        .select(
+            "store_id",
+            col("store_name").alias("name"),
+            col("store_city").alias("city"),
+            col("store_country").alias("country"),
+            "total_revenue",
+            "avg_order_value",
+            "total_orders"
         )
-    
-    # Get top 5 stores
-    top_stores = store_metrics.orderBy(desc("total_revenue")).limit(5)
     
     # Write to ClickHouse
     write_to_clickhouse(store_metrics, "store_sales_report")
 
 def create_supplier_sales_report():
     """Create supplier sales report"""
-    sales_df = read_from_postgres("sales")
-    products_df = read_from_postgres("products")
-    suppliers_df = read_from_postgres("suppliers")
-    
-    # Join all tables
-    supplier_sales = sales_df.join(products_df, "product_id") \
-        .join(suppliers_df, "supplier_id")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Calculate metrics
-    supplier_metrics = supplier_sales.groupBy("supplier_id", "name", "country") \
+    supplier_metrics = raw_data.groupBy("supplier_name", "supplier_country") \
         .agg(
-            sum("total_price").alias("total_revenue"),
-            avg("price").alias("avg_product_price"),
-            count("*").alias("total_orders")
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("total_revenue"),
+            avg("product_price").cast(DecimalType(10, 2)).alias("avg_product_price"),
+            count("*").cast(IntegerType()).alias("total_orders")
+        ) \
+        .withColumn("supplier_id", monotonically_increasing_id().cast(IntegerType())) \
+        .select(
+            "supplier_id",
+            col("supplier_name").alias("name"),
+            col("supplier_country").alias("country"),
+            "total_revenue",
+            "avg_product_price",
+            "total_orders"
         )
-    
-    # Get top 5 suppliers
-    top_suppliers = supplier_metrics.orderBy(desc("total_revenue")).limit(5)
     
     # Write to ClickHouse
     write_to_clickhouse(supplier_metrics, "supplier_sales_report")
 
 def create_product_quality_report():
     """Create product quality report"""
-    products_df = read_from_postgres("products")
-    sales_df = read_from_postgres("sales")
-    
-    # Join products with sales
-    product_quality = products_df.join(sales_df, "product_id", "left")
+    raw_data = read_from_postgres("pet_store_data")
     
     # Calculate metrics
-    quality_metrics = product_quality.groupBy("product_id", "name", "category") \
+    quality_metrics = raw_data.groupBy("sale_product_id") \
         .agg(
-            avg("rating").alias("avg_rating"),
-            sum("reviews").alias("total_reviews"),
-            sum("quantity").alias("total_sold"),
-            sum("total_price").alias("total_revenue")
-        )
+            first("sale_product_id").cast(IntegerType()).alias("product_id"),
+            first("product_name").alias("name"),
+            first("product_category").alias("category"),
+            avg("product_rating").cast(DecimalType(3, 2)).alias("avg_rating"),
+            sum("product_reviews").cast(IntegerType()).alias("total_reviews"),
+            sum("sale_quantity").cast(IntegerType()).alias("total_sold"),
+            sum("sale_total_price").cast(DecimalType(10, 2)).alias("total_revenue")
+        ) \
+        .select("product_id", "name", "category", "avg_rating", "total_reviews", "total_sold", "total_revenue")
     
     # Write to ClickHouse
     write_to_clickhouse(quality_metrics, "product_quality_report")
@@ -182,6 +190,7 @@ def main():
     print("Starting ETL pipeline...")
     
     # Create all reports
+    print("Creating reports...")
     create_product_sales_report()
     create_customer_sales_report()
     create_time_sales_report()
